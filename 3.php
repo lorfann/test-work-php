@@ -8,7 +8,7 @@ class newBase
     /**
      * @param string $name
      */
-    function __construct(int $name = 0) 
+    function __construct( string $name) // тут ожидается число , а передается стока 
     {
         if (empty($name)) {
             while (array_search(self::$count, self::$arSetName) != false) {
@@ -52,8 +52,8 @@ class newBase
      */
     public function getSave(): string
     {
-        $value = serialize($value);
-        return $this->name . ':' . sizeof($value) . ':' . $value;
+        $value = serialize(this->$value); // переменная $value без предварительного определения. Вместо этого должно быть $this->value.
+        return $this->name . ':' . strlen($value) . ':' . $value; //вместо sizeof должно быть strlen
     }
     /**
      * @return newBase
@@ -62,8 +62,7 @@ class newBase
     {
         $arValue = explode(':', $value);
         return (new newBase($arValue[0]))
-            ->setValue(unserialize(substr($value, strlen($arValue[0]) + 1
-                + strlen($arValue[1]) + 1), $arValue[1]));
+            ->setValue(unserialize(substr(unserialize(substr($value, strlen($arValue[0]) + 1 + strlen($arValue[1]) + 1), $arValue[1])), $arValue[1])); //не верный вызов
     }
 }
 class newView extends newBase
@@ -104,7 +103,7 @@ class newView extends newBase
      */
     public function __sleep()
     {
-        return ['property'];
+        return ['value', 'property']; // тут нужно вернуть массив с именами value и property, которые являются свойствами класса newView
     }
     /**
      * @return string
@@ -154,14 +153,13 @@ class newView extends newBase
     /**
      * @return newView
      */
-    static public function load(string $value): newBase
+    static public function load(string $value): newBase //  тут нужно возвращать экземпляр newView
     {
         $arValue = explode(':', $value);
         return (new newBase($arValue[0]))
             ->setValue(unserialize(substr($value, strlen($arValue[0]) + 1
                 + strlen($arValue[1]) + 1), $arValue[1]))
-            ->setProperty(unserialize(substr($value, strlen($arValue[0]) + 1
-                + strlen($arValue[1]) + 1 + $arValue[1])))
+            ->setProperty(unserialize(substr($value, strlen($arValue[0]) + 1 + strlen($arValue[1]) + 1), $arValue[1])) // вызов unserialize  был неверный
             ;
     }
 }
@@ -179,7 +177,7 @@ function gettype($value): string
 }
 
 
-$obj = new newBase('12345'); 
+$obj = new newBase('12345'); // тут передается строка , хотя 
 $obj->setValue('text');
 
 $obj2 = new \Test3\newView('O9876');
