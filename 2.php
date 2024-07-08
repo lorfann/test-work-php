@@ -61,8 +61,8 @@ function mySortForKey($a, $b) {
 
 /*====================================================================================== */
 
-function importXml($a)
-{
+function importXml($a) {
+
     $driver = 'mysql:host=localhost;dbname=test_samson;charset=utf8';
     $username = $login;
     $password = $pass;
@@ -126,3 +126,122 @@ function importXml($a)
     }
 }
 
+/*====================================================================================== */
+
+
+function exportXml($a, $b) {
+    // Подключение к базе данных
+    $driver = 'mysql:host=localhost;dbname=test_samson;charset=utf8';
+    $username = $login;
+    $password = $pass;
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, //  Устанавливаем режим обработки ошибок как исключения
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, // Устанавливаем режим выборки данных как ассоциативные массивы
+    ];
+    
+    $pdo = new PDO($driver, $username, $password, $options);
+
+    // Получение всех вложенных категорий
+    $categoryIds = getCategoryIds($pdo, $b);
+
+    if (empty($categoryIds)) {
+        // Если нет категорий, то нет и товаров
+        file_put_contents($a, '<?xml version="1.0" encoding="windows-1251"?><Товары></Товары>');
+        return;
+    }
+
+    // Получение товаров и их характеристик
+    $products = getProducts($pdo, $categoryIds);
+
+    // Формирование XML
+    $xml = new SimpleXMLElement('<?xml version="1.0" encoding="windows-1251"?><Товары></Товары>');
+
+    foreach ($products as $product) {
+        $productElement = $xml->addChild('Товар');
+        $productElement->addAttribute('Код', $product['code']);
+        $productElement->addAttribute('Название', $product['name']);
+
+        // Добавление цен
+        foreach ($product['prices'] as $price) {
+            $priceElement = $productElement->addChild('Цена', $price['price']);
+            $priceElement->addAttribute('Тип', $price['price_type']);
+        }
+
+        // Добавление свойств
+        $propertiesElement = $productElement->addChild('Свойства');
+        foreach ($product['properties'] as $property) {
+            $propertiesElement->addChild($property['name'], $property['value']);
+        }
+
+        // Добавление разделов
+        $categoriesElement = $productElement->addChild('Разделы');
+        foreach ($product['categories'] as $category) {
+            $categoriesElement->addChild('Раздел', $category['name']);
+        }
+    }
+
+    // Сохранение XML в файл
+    $xml->asXML($a);
+}
+
+function getCategoryIds($pdo, $categoryCode) {
+    $stmt = $pdo->prepare('
+        WITH RECURSIVE category_tree AS (
+            SELECT id, code, name, parent_id
+            FROM a_category
+            WHERE code = ?
+            UNION ALL
+            SELECT c.id, c.code, c.name, c.parent_id
+            FROM a_category c
+            INNER JOIN category_tree ct ON ct.id = c.parent_id
+        )
+        SELECT id FROM category_tree
+    ');
+    $stmt->execute([$categoryCode]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN);
+}
+
+function getProducts($pdo, $categoryIds) {
+    if (empty($categoryIds)) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($categoryIds), '?'));
+
+    // Получение товаров
+    $stmt = $pdo->prepare("
+        SELECT p.id, p.code, p.name
+        FROM a_product p
+        JOIN product_category pc ON p.id = pc.product_id
+        WHERE pc.category_id IN ($placeholders)
+    ");
+    $stmt->execute($categoryIds);
+    $products = $stmt->fetchAll();
+
+    // Получение характеристик товаров
+    foreach ($products as &$product) {
+        $productId = $product['id'];
+
+        // Получение цен
+        $stmt = $pdo->prepare("SELECT price_type, price FROM a_price WHERE product_id = ?");
+        $stmt->execute([$productId]);
+        $product['prices'] = $stmt->fetchAll();
+
+        // Получение свойств
+        $stmt = $pdo->prepare("SELECT property_value AS value FROM a_property WHERE product_id = ?");
+        $stmt->execute([$productId]);
+        $product['properties'] = $stmt->fetchAll();
+
+        // Получение категорий
+        $stmt = $pdo->prepare("
+            SELECT c.name
+            FROM a_category c
+            JOIN product_category pc ON c.id = pc.category_id
+            WHERE pc.product_id = ?
+        ");
+        $stmt->execute([$productId]);
+        $product['categories'] = $stmt->fetchAll();
+    }
+
+    return $products;
+}
