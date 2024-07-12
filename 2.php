@@ -67,60 +67,56 @@ function importXml($a) {
     $username = $login;
     $password = $pass;
     $options = [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, //  Устанавливаем режим обработки ошибок как исключения
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, // Устанавливаем режим выборки данных как ассоциативные массивы
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ];
     try {
         $pdo = new PDO($driver, $username, $password, $options);
     } catch (PDOException $e) {
-        die("Connection failed: " . $e->getMessage()); // Если подключение не удалось, выводим сообщение об ошибке и завершаем выполнение скрипт
+        die("Connection failed: " . $e->getMessage());
     }
-    $xml = simplexml_load_file($a, 'SimpleXMLElement', LIBXML_NOCDATA); // Чтение и парсинг XML файла
+    $xml = simplexml_load_file($a, 'SimpleXMLElement', LIBXML_NOCDATA);
     if ($xml === false) {
         die("Failed to load XML file.");
     }
+
+    // Подготовленный запрос для вставки товара в таблицу a_product
+    $insertProductStmt = $pdo->prepare("INSERT INTO a_product (code, name) VALUES (?, ?)");
+    // Подготовленный запрос для вставки цены в таблицу a_price
+    $insertPriceStmt = $pdo->prepare("INSERT INTO a_price (product_id, price_type, price) VALUES (?, ?, ?)");
+    // Подготовленный запрос для вставки свойства в таблицу a_property
+    $insertPropertyStmt = $pdo->prepare("INSERT INTO a_property (product_id, property_value) VALUES (?, ?)");
+
     foreach ($xml->Товар as $product) {
         $code = $product['Код'];
         $name = $product['Название'];
-        // Вставка товара в таблицу a_product
-        $stmt = $pdo->prepare(
-            "INSERT INTO a_product (code, name) VALUES (?, ?)"
-        );
-        $stmt->execute([$code, $name]);
+
+        // Выполнение запроса на вставку товара
+        $insertProductStmt->execute([$code, $name]);
         $product_id = $pdo->lastInsertId();
-        // Вставка цен в таблицу a_price
+
         foreach ($product->Цена as $price) {
             $price_type = $price['Тип'];
             $price_value = (float) $price;
-            $stmt = $pdo->prepare(
-                "INSERT INTO a_price (product_id, price_type, price) VALUES (?, ?, ?)"
-            );
-            $stmt->execute([$product_id, $price_type, $price_value]);
+            // Выполнение запроса на вставку цены
+            $insertPriceStmt->execute([$product_id, $price_type, $price_value]);
         }
-        // Вставка свойств в таблицу a_property
-        foreach (
-            $product->Свойства->children()
-            as $property_name => $property_value
-        ) {
-            $stmt = $pdo->prepare(
-                "INSERT INTO a_property (product_id, property_value) VALUES (?, ?)"
-            );
-            $stmt->execute([$product_id, $property_value]);
+
+        foreach ($product->Свойства->children() as $property_name => $property_value) {
+            // Выполнение запроса на вставку свойства
+            $insertPropertyStmt->execute([$product_id, $property_value]);
         }
+
         foreach ($product->Разделы->Раздел as $category_name) {
             $stmt = $pdo->prepare("SELECT id FROM a_category WHERE name = ?");
             $stmt->execute([$category_name]);
             $category_id = $stmt->fetchColumn();
             if (!$category_id) {
-                $stmt = $pdo->prepare(
-                    "INSERT INTO a_category (name) VALUES (?)"
-                );
+                $stmt = $pdo->prepare("INSERT INTO a_category (name) VALUES (?)");
                 $stmt->execute([$category_name]);
                 $category_id = $pdo->lastInsertId();
             }
-            $stmt = $pdo->prepare(
-                "UPDATE a_product SET category_id = ? WHERE id = ?"
-            );
+            $stmt = $pdo->prepare("UPDATE a_product SET category_id = ? WHERE id = ?");
             $stmt->execute([$category_id, $product_id]);
         }
     }
